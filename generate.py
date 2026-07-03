@@ -28,20 +28,26 @@ def load_data(stationpedia_path: Path, enums_path: Path) -> dict:
 
     devices = []
     for page in sp["pages"]:
-        logic = [
-            {
-                "name": strip_tags(li["LogicName"]),
-                "access": li["LogicAccessTypes"],
-            }
-            for li in page["LogicInsert"]
-        ]
-        slot_logic = [
-            {
-                "name": strip_tags(li["LogicName"]),
-                "slots": li["LogicAccessTypes"],
-            }
-            for li in page["LogicSlotInsert"]
-        ]
+        logic = sorted(
+            [
+                {
+                    "name": strip_tags(li["LogicName"]),
+                    "access": li["LogicAccessTypes"],
+                }
+                for li in page["LogicInsert"]
+            ],
+            key=lambda x: x["name"],
+        )
+        slot_logic = sorted(
+            [
+                {
+                    "name": strip_tags(li["LogicName"]),
+                    "slots": li["LogicAccessTypes"],
+                }
+                for li in page["LogicSlotInsert"]
+            ],
+            key=lambda x: x["name"],
+        )
         if not logic and not slot_logic:
             continue
         devices.append({
@@ -115,8 +121,12 @@ def render_devices(devices: list) -> str:
             f'<tbody>{slot_cells}</tbody></table>'
             if slot_cells else ""
         )
+        param_names = " ".join(
+            li["name"].lower() for li in d["logic"] + d["slot_logic"]
+        )
+        search_text = e(f'{d["name"].lower()} {param_names}')
         rows.append(
-            f'<div class="device-card" data-search="{e(d["name"].lower())}">'
+            f'<div class="device-card" data-search="{search_text}">'
             f'<div class="device-header">'
             f'<span class="device-name">{e(d["name"])}</span>'
             f'<span class="device-hash">{e(d["hash"])}</span>'
