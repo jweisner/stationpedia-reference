@@ -104,6 +104,7 @@ def load_data(stationpedia_path: Path, enums_path: Path) -> dict:
                 key=lambda x: x["value"],
             )
             enums.append({"name": name, "values": values})
+    link_enum_usage(enums, sp, en)
     pinned = ["DisplayMode", "Color", "LogicBatchMethod", "LogicReagentMode"]
     enums.sort(key=lambda x: (pinned.index(x["name"]) if x["name"] in pinned else len(pinned), x["name"]))
 
@@ -116,6 +117,66 @@ def load_data(stationpedia_path: Path, enums_path: Path) -> dict:
         "enums": enums,
         "version": sp.get("version", "unknown"),
     }
+
+
+def link_enum_usage(enums: list, sp: dict, en: dict) -> None:
+    """Attach a "uses" list to each enum, from exact links in the export only.
+
+    Matching enum value names against arbitrary strings gives false positives
+    ("None", "Default" are everywhere), so only these structural links count:
+    a device's whole Mode list, a LogicType/LogicSlotType named after the enum
+    (or an item field of that name whose values all come from the enum), and
+    instruction text listing at least two of the enum's "Name (value)" pairs.
+    """
+    logic_types = set(en["scriptEnums"]["LogicType"]["values"])
+    slot_types = set(en["scriptEnums"]["LogicSlotType"]["values"])
+
+    # Item fields whose values all come from one enum, e.g. Item.FilterType
+    # holds GasType names. Keyed by field name.
+    item_values = {}
+    for page in sp["pages"]:
+        for field, value in (page.get("Item") or {}).items():
+            if isinstance(value, str):
+                item_values.setdefault(field, set()).add(value)
+
+    for en_ in enums:
+        values = {v["name"]: v["value"] for v in en_["values"]}
+        name = en_["name"]
+        uses = []
+
+        pairs = [f'{n} ({v})' for n, v in values.items()]
+        ops = sorted(
+            op for op, info in sp["scriptCommands"].items()
+            if sum(pair in strip_tags(info.get("desc", "")) for pair in pairs) >= 2
+        )
+        if ops:
+            uses.append({"label": "Instructions", "items": ops})
+
+        mode_devices = []
+        for page in sp["pages"]:
+            modes = {
+                strip_tags(m["LogicName"]): m["LogicAccessTypes"]
+                for m in page.get("ModeInsert") or []
+            }
+            if modes and all(str(values.get(k)) == v for k, v in modes.items()):
+                mode_devices.append(page["PrefabName"])
+        if mode_devices:
+            uses.append({"label": "Mode on", "items": sorted(set(mode_devices))})
+
+        def pages_with(insert: str, logic_name: str) -> list:
+            return sorted({
+                page["PrefabName"] for page in sp["pages"]
+                if any(strip_tags(li["LogicName"]) == logic_name for li in page[insert])
+            })
+
+        if name in logic_types:
+            uses.append({"label": f"{name} logic type on", "items": pages_with("LogicInsert", name)})
+        for st in sorted(slot_types):
+            vals = item_values.get(st)
+            if st == name or (vals and vals <= values.keys()):
+                uses.append({"label": f"{st} slot logic type on", "items": pages_with("LogicSlotInsert", st)})
+
+        en_["uses"] = [u for u in uses if u["items"]]
 
 
 def e(text) -> str:
@@ -208,10 +269,21 @@ def render_enums(enums: list) -> str:
             f'<td class="enum-value">{e(v["value"])}</td><td>{e(v["name"])}</td></tr>'
             for v in en["values"]
         )
+        uses = ""
+        for u in en["uses"]:
+            items = ", ".join(e(i) for i in u["items"])
+            label = f'{e(u["label"])} ({len(u["items"])})'
+            uses += (
+                f'<div class="enum-use"><span>{label}:</span> {items}</div>'
+                if len(u["items"]) <= 6 else
+                f'<details class="enum-use"><summary>{label}</summary>{items}</details>'
+            )
+        used_by = " ".join(i.lower() for u in en["uses"] for i in u["items"])
         cards.append(
-            f'<div class="enum-card" data-search="{e(en["name"].lower())}">'
+            f'<div class="enum-card" data-search="{e(en["name"].lower())} {e(used_by)}">'
             f'<div class="device-header"><span class="device-name">{e(en["name"])}</span>'
             f'<span class="device-hash">{len(en["values"])}</span></div>'
+            f'{f"<div class=\"enum-uses\">{uses}</div>" if uses else ""}'
             f'<table><tbody>{rows}</tbody></table>'
             f'</div>'
         )
@@ -277,6 +349,10 @@ h2:first-child { margin-top: 0; }
 .enum-card table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
 .enum-card td { padding: 0.25rem 0.6rem; border-top: 1px solid #2a2a2a; }
 td.enum-value { font-family: monospace; color: #7ec8e3; text-align: right; width: 3.5rem; }
+.enum-uses { padding: 0.4rem 0.6rem; font-size: 0.72rem; color: #888; border-bottom: 1px solid #333; overflow-wrap: anywhere; }
+.enum-use + .enum-use { margin-top: 0.25rem; }
+.enum-use span, .enum-use summary { color: #aaa; }
+.enum-use summary { cursor: pointer; }
 .enum-card tr.deprecated td { color: #666; text-decoration: line-through; }
 .no-results { color: #666; padding: 2rem; text-align: center; display: none; }
 """
