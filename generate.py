@@ -85,12 +85,35 @@ def load_data(stationpedia_path: Path, enums_path: Path) -> dict:
     logic_types = sorted(en["scriptEnums"]["LogicType"]["values"].keys())
     slot_types = sorted(en["scriptEnums"]["LogicSlotType"]["values"].keys())
 
+    # Every other enum, one table each. LogicType/LogicSlotType have their own
+    # tab. Keys starting with "_" are unnamed in the export; fall back to
+    # enumName. The most-used ones for IC10 are pinned first.
+    seen = {"LogicType", "LogicSlotType"}
+    enums = []
+    for group in ("scriptEnums", "basicEnums"):
+        for key, info in en[group].items():
+            name = info["enumName"] if key.startswith("_") else key
+            if name in seen:
+                continue
+            seen.add(name)
+            values = sorted(
+                [
+                    {"name": n, "value": v["value"], "deprecated": v.get("deprecated", False)}
+                    for n, v in info["values"].items()
+                ],
+                key=lambda x: x["value"],
+            )
+            enums.append({"name": name, "values": values})
+    pinned = ["DisplayMode", "Color", "LogicBatchMethod", "LogicReagentMode"]
+    enums.sort(key=lambda x: (pinned.index(x["name"]) if x["name"] in pinned else len(pinned), x["name"]))
+
     return {
         "devices": devices,
         "instructions": instructions,
         "constants": constants,
         "logic_types": logic_types,
         "slot_types": slot_types,
+        "enums": enums,
         "version": sp.get("version", "unknown"),
     }
 
@@ -176,6 +199,25 @@ def render_logic_types(logic_types: list, slot_types: list) -> str:
     )
 
 
+def render_enums(enums: list) -> str:
+    cards = []
+    for en in enums:
+        rows = "".join(
+            f'<tr data-search="{e(v["name"].lower())}"'
+            f'{" class=\"deprecated\"" if v["deprecated"] else ""}>'
+            f'<td class="enum-value">{e(v["value"])}</td><td>{e(v["name"])}</td></tr>'
+            for v in en["values"]
+        )
+        cards.append(
+            f'<div class="enum-card" data-search="{e(en["name"].lower())}">'
+            f'<div class="device-header"><span class="device-name">{e(en["name"])}</span>'
+            f'<span class="device-hash">{len(en["values"])}</span></div>'
+            f'<table><tbody>{rows}</tbody></table>'
+            f'</div>'
+        )
+    return "\n".join(cards)
+
+
 CSS = """
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a1a; color: #d0d0d0; line-height: 1.5; }
@@ -228,6 +270,14 @@ h2:first-child { margin-top: 0; }
 .count { color: #666; font-weight: normal; }
 .tag-list { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .tag { background: #2a2a2a; border: 1px solid #444; border-radius: 3px; padding: 0.15rem 0.5rem; font-size: 0.8rem; font-family: monospace; color: #b0b0b0; }
+/* Enums */
+.enum-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; align-items: start; }
+.enum-card { background: #222; border: 1px solid #333; border-radius: 6px; overflow: hidden; }
+.enum-card.hidden, .enum-card tr.hidden { display: none; }
+.enum-card table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.enum-card td { padding: 0.25rem 0.6rem; border-top: 1px solid #2a2a2a; }
+td.enum-value { font-family: monospace; color: #7ec8e3; text-align: right; width: 3.5rem; }
+.enum-card tr.deprecated td { color: #666; text-decoration: line-through; }
 .no-results { color: #666; padding: 2rem; text-align: center; display: none; }
 """
 
@@ -263,6 +313,18 @@ function filterAll(q) {
         document.querySelectorAll('.const-table tr[data-search]').forEach(el => {
             el.classList.toggle('hidden', q && !el.dataset.search.includes(q));
         });
+    } else if (activeTab === 'tab-enums') {
+        // Enum name match shows the whole table; otherwise show matching values only.
+        document.querySelectorAll('.enum-card').forEach(card => {
+            const nameHit = !q || card.dataset.search.includes(q);
+            let anyRow = false;
+            card.querySelectorAll('tr[data-search]').forEach(tr => {
+                const hit = nameHit || tr.dataset.search.includes(q);
+                tr.classList.toggle('hidden', !hit);
+                anyRow = anyRow || hit;
+            });
+            card.classList.toggle('hidden', !anyRow);
+        });
     }
 }
 """
@@ -274,6 +336,7 @@ def generate(data: dict) -> str:
     instructions_html = render_instructions(data["instructions"])
     constants_html = render_constants(data["constants"])
     logic_html = render_logic_types(data["logic_types"], data["slot_types"])
+    enums_html = render_enums(data["enums"])
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -292,6 +355,7 @@ def generate(data: dict) -> str:
     <button data-tab="tab-instructions">Instructions ({len(data["instructions"])})</button>
     <button data-tab="tab-constants">Constants ({len(data["constants"])})</button>
     <button data-tab="tab-logic">Logic Types</button>
+    <button data-tab="tab-enums">Enums ({len(data["enums"])})</button>
   </nav>
   <div class="search-wrap"><input id="search" type="search" placeholder="Filter…"></div>
 </header>
@@ -309,6 +373,9 @@ def generate(data: dict) -> str:
     </table>
   </div>
   <div id="tab-logic" class="tab">{logic_html}</div>
+  <div id="tab-enums" class="tab">
+    <div class="enum-grid">{enums_html}</div>
+  </div>
 </main>
 <script>{JS}</script>
 </body>
@@ -335,6 +402,7 @@ def main():
     print(f"  Instructions: {len(data['instructions'])}")
     print(f"  Constants: {len(data['constants'])}")
     print(f"  LogicTypes: {len(data['logic_types'])}, SlotTypes: {len(data['slot_types'])}")
+    print(f"  Enums: {len(data['enums'])}")
 
 
 if __name__ == "__main__":
