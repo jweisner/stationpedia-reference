@@ -354,6 +354,15 @@ td.enum-value { font-family: monospace; color: #7ec8e3; text-align: right; width
 .enum-use span, .enum-use summary { color: #aaa; }
 .enum-use summary { cursor: pointer; }
 .enum-card tr.deprecated td { color: #666; text-decoration: line-through; }
+/* Tools */
+.tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; align-items: start; }
+.tool-card { background: #222; border: 1px solid #333; border-radius: 6px; overflow: hidden; }
+.tool-card.hidden { display: none; }
+.tool-body { display: flex; align-items: flex-end; gap: 0.6rem; padding: 0.8rem; }
+.tool-body label { flex: 1; display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.75rem; color: #888; }
+.tool-body input { width: 100%; background: #1a1a1a; border: 1px solid #444; color: #7ec8e3; padding: 0.4rem 0.6rem; border-radius: 4px; font-family: monospace; font-size: 1rem; }
+.tool-body input:focus { outline: none; border-color: #e8a020; }
+.tool-sep { color: #666; padding-bottom: 0.45rem; }
 .no-results { color: #666; padding: 2rem; text-align: center; display: none; }
 """
 
@@ -401,8 +410,39 @@ function filterAll(q) {
             });
             card.classList.toggle('hidden', !anyRow);
         });
+    } else if (activeTab === 'tab-tools') {
+        document.querySelectorAll('.tool-card').forEach(el => {
+            el.classList.toggle('hidden', q && !el.dataset.search.includes(q));
+        });
     }
 }
+
+// Tools: editing one field recalculates the other. Rounded to 4 places to
+// hide float noise from the 273.15 offset (e.g. 0.15000000000003).
+function linkFields(a, b, aToB, bToA) {
+    const fmt = v => String(Math.round(v * 1e4) / 1e4);
+    const wire = (src, dst, fn) => src.addEventListener('input', () => {
+        const v = parseFloat(src.value);
+        dst.value = Number.isFinite(v) ? fmt(fn(v)) : '';
+    });
+    wire(a, b, aToB);
+    wire(b, a, bToA);
+}
+linkFields(document.getElementById('tool-kelvin'), document.getElementById('tool-celsius'),
+    k => k - 273.15, c => c + 273.15);
+"""
+
+
+# Static, not derived from the export. Each card's inputs are wired up in JS.
+TOOLS_HTML = """
+<div class="tool-card" data-search="temperature kelvin celsius converter">
+  <div class="device-header"><span class="device-name">Temperature</span></div>
+  <div class="tool-body">
+    <label>Kelvin<input id="tool-kelvin" type="number" step="any" value="293.15"></label>
+    <span class="tool-sep">&harr;</span>
+    <label>Celsius<input id="tool-celsius" type="number" step="any" value="20"></label>
+  </div>
+</div>
 """
 
 
@@ -432,6 +472,7 @@ def generate(data: dict) -> str:
     <button data-tab="tab-constants">Constants ({len(data["constants"])})</button>
     <button data-tab="tab-logic">Logic Types</button>
     <button data-tab="tab-enums">Enums ({len(data["enums"])})</button>
+    <button data-tab="tab-tools">Tools</button>
   </nav>
   <div class="search-wrap"><input id="search" type="search" placeholder="Filter…"></div>
 </header>
@@ -451,6 +492,9 @@ def generate(data: dict) -> str:
   <div id="tab-logic" class="tab">{logic_html}</div>
   <div id="tab-enums" class="tab">
     <div class="enum-grid">{enums_html}</div>
+  </div>
+  <div id="tab-tools" class="tab">
+    <div class="tool-grid">{TOOLS_HTML}</div>
   </div>
 </main>
 <script>{JS}</script>

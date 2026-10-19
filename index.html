@@ -68,6 +68,15 @@ td.enum-value { font-family: monospace; color: #7ec8e3; text-align: right; width
 .enum-use span, .enum-use summary { color: #aaa; }
 .enum-use summary { cursor: pointer; }
 .enum-card tr.deprecated td { color: #666; text-decoration: line-through; }
+/* Tools */
+.tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; align-items: start; }
+.tool-card { background: #222; border: 1px solid #333; border-radius: 6px; overflow: hidden; }
+.tool-card.hidden { display: none; }
+.tool-body { display: flex; align-items: flex-end; gap: 0.6rem; padding: 0.8rem; }
+.tool-body label { flex: 1; display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.75rem; color: #888; }
+.tool-body input { width: 100%; background: #1a1a1a; border: 1px solid #444; color: #7ec8e3; padding: 0.4rem 0.6rem; border-radius: 4px; font-family: monospace; font-size: 1rem; }
+.tool-body input:focus { outline: none; border-color: #e8a020; }
+.tool-sep { color: #666; padding-bottom: 0.45rem; }
 .no-results { color: #666; padding: 2rem; text-align: center; display: none; }
 </style>
 </head>
@@ -81,6 +90,7 @@ td.enum-value { font-family: monospace; color: #7ec8e3; text-align: right; width
     <button data-tab="tab-constants">Constants (9)</button>
     <button data-tab="tab-logic">Logic Types</button>
     <button data-tab="tab-enums">Enums (28)</button>
+    <button data-tab="tab-tools">Tools</button>
   </nav>
   <div class="search-wrap"><input id="search" type="search" placeholder="Filter…"></div>
 </header>
@@ -696,6 +706,18 @@ td.enum-value { font-family: monospace; color: #7ec8e3; text-align: right; width
 <div class="enum-card" data-search="transmittermode structurelogictransmitter"><div class="device-header"><span class="device-name">TransmitterMode</span><span class="device-hash">2</span></div><div class="enum-uses"><div class="enum-use"><span>Mode on (1):</span> StructureLogicTransmitter</div></div><table><tbody><tr data-search="passive"><td class="enum-value">0</td><td>Passive</td></tr><tr data-search="active"><td class="enum-value">1</td><td>Active</td></tr></tbody></table></div>
 <div class="enum-card" data-search="vent itemliquidvacuum structureactivevent structurecrewmoduleactivevent structurelarredockatmos structurelarredockcollector structurepoweredvent structurepoweredventlarge"><div class="device-header"><span class="device-name">Vent</span><span class="device-hash">2</span></div><div class="enum-uses"><details class="enum-use"><summary>Mode on (7)</summary>ItemLiquidVacuum, StructureActiveVent, StructureCrewModuleActiveVent, StructureLarreDockAtmos, StructureLarreDockCollector, StructurePoweredVent, StructurePoweredVentLarge</details></div><table><tbody><tr data-search="outward"><td class="enum-value">0</td><td>Outward</td></tr><tr data-search="inward"><td class="enum-value">1</td><td>Inward</td></tr></tbody></table></div></div>
   </div>
+  <div id="tab-tools" class="tab">
+    <div class="tool-grid">
+<div class="tool-card" data-search="temperature kelvin celsius converter">
+  <div class="device-header"><span class="device-name">Temperature</span></div>
+  <div class="tool-body">
+    <label>Kelvin<input id="tool-kelvin" type="number" step="any" value="293.15"></label>
+    <span class="tool-sep">&harr;</span>
+    <label>Celsius<input id="tool-celsius" type="number" step="any" value="20"></label>
+  </div>
+</div>
+</div>
+  </div>
 </main>
 <script>
 const tabs = document.querySelectorAll('nav button');
@@ -741,8 +763,26 @@ function filterAll(q) {
             });
             card.classList.toggle('hidden', !anyRow);
         });
+    } else if (activeTab === 'tab-tools') {
+        document.querySelectorAll('.tool-card').forEach(el => {
+            el.classList.toggle('hidden', q && !el.dataset.search.includes(q));
+        });
     }
 }
+
+// Tools: editing one field recalculates the other. Rounded to 4 places to
+// hide float noise from the 273.15 offset (e.g. 0.15000000000003).
+function linkFields(a, b, aToB, bToA) {
+    const fmt = v => String(Math.round(v * 1e4) / 1e4);
+    const wire = (src, dst, fn) => src.addEventListener('input', () => {
+        const v = parseFloat(src.value);
+        dst.value = Number.isFinite(v) ? fmt(fn(v)) : '';
+    });
+    wire(a, b, aToB);
+    wire(b, a, bToA);
+}
+linkFields(document.getElementById('tool-kelvin'), document.getElementById('tool-celsius'),
+    k => k - 273.15, c => c + 273.15);
 </script>
 </body>
 </html>
